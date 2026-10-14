@@ -2,6 +2,8 @@ from pathutils import full_path as expand_full_path
 
 from pytest import mark
 from pytest import raises
+from unittest.mock import patch
+from urllib.request import OpenerDirector
 
 from saml2 import create_class_from_xml_string
 from saml2.saml import AttributeStatement
@@ -107,3 +109,51 @@ def test_namespace_processing():
         """,
     )
     validate_doc_with_schema(str(elem))
+
+
+@mark.parametrize("prefix", ["xs", "xsd"])
+def test_nil_attribute_value_retains_its_type_namespace(prefix):
+    elem = create_class_from_xml_string(
+        AttributeStatement,
+        f'''<saml:AttributeStatement xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xmlns:{prefix}="http://www.w3.org/2001/XMLSchema">
+            <saml:Attribute Name="first"><saml:AttributeValue xsi:type="{prefix}:string">value</saml:AttributeValue></saml:Attribute>
+            <saml:Attribute Name="second"><saml:AttributeValue xsi:nil="true" xsi:type="{prefix}:string"/></saml:Attribute>
+        </saml:AttributeStatement>''',
+    )
+    xml = str(elem)
+    # Every sibling must carry the QName binding; a declaration on the first
+    # value is not in scope for the second value.
+    assert xml.count(f'xmlns:{prefix}="http://www.w3.org/2001/XMLSchema"') == 2
+    validate_doc_with_schema(xml)
+    assert elem.attribute[1].attribute_value[0].get_type() == f"{prefix}:string"
+
+
+def test_document_schema_hints_cannot_trigger_network_access():
+    doc = '''<saml:AttributeStatement xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="urn:oasis:names:tc:SAML:2.0:assertion https://example.invalid/untrusted.xsd">
+        <saml:Attribute Name="test"><saml:AttributeValue>value</saml:AttributeValue></saml:Attribute>
+    </saml:AttributeStatement>'''
+    with patch.object(OpenerDirector, "open", side_effect=AssertionError("Unexpected resource access")):
+        validate_doc_with_schema(doc)
+
+
+@mark.parametrize("location", ["file:///should-not-be-opened", "https://example.invalid/entity"])
+def test_external_entities_are_rejected_without_resource_access(location):
+    doc = f'''<!DOCTYPE test [<!ENTITY external SYSTEM "{location}">]>
+        <saml:AttributeStatement xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+            <saml:Attribute Name="test"><saml:AttributeValue>&external;</saml:AttributeValue></saml:Attribute>
+        </saml:AttributeStatement>'''
+    with patch.object(OpenerDirector, "open", side_effect=AssertionError("Unexpected resource access")) as access:
+        with raises(XMLSchemaError):
+            validate_doc_with_schema(doc)
+        access.assert_not_called()
+
+
+def test_remote_document_url_is_rejected_without_network_access():
+    with patch.object(OpenerDirector, "open", side_effect=AssertionError("Unexpected resource access")) as access:
+        with raises(XMLSchemaError):
+            validate_doc_with_schema("https://example.invalid/metadata.xml")
+        access.assert_not_called()

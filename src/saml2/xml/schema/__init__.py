@@ -1,6 +1,7 @@
 from importlib.resources import files as _resource_files
 
 from xmlschema import XMLSchema as _XMLSchema
+from xmlschema import XMLResource as _XMLResource
 from xmlschema.exceptions import XMLSchemaException as _XMLSchemaException
 
 import saml2.data.schemas as _data_schemas
@@ -60,7 +61,14 @@ _schema_validator_default = _create_xml_schema_validator()
 def validate(doc, validator=None):
     validator = _schema_validator_default if validator is None else validator
     try:
-        validator.validate(doc)
+        # xmlschema 4.x otherwise applies the schema's package-directory sandbox
+        # to the input document as well. Parse the caller's explicit document
+        # separately, without remote access or entity expansion. Schema imports
+        # remain restricted to the bundled-schema sandbox above.
+        resource = doc if isinstance(doc, _XMLResource) else _XMLResource(
+            doc, allow="local", defuse="always"
+        )
+        validator.validate(resource)
     except _XMLSchemaException as e:
         error_context = {
             "doc": doc,

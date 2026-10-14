@@ -148,6 +148,17 @@ SCM_BEARER = "urn:oasis:names:tc:SAML:2.0:cm:bearer"
 
 
 class AttributeValueBase(SamlBase):
+    def _add_members_to_element_tree(self, tree):
+        super()._add_members_to_element_tree(tree)
+        # QName-valued attributes are strings to ElementTree, so it cannot
+        # discover their namespace. This also applies to nil/empty values,
+        # which do not pass through set_type() during parsing.
+        typ = tree.get(XSI_TYPE, "")
+        if isinstance(typ, str) and ":" in typ:
+            prefix = typ.split(":", 1)[0]
+            if prefix in ("xs", "xsd"):
+                tree.attrib.setdefault(f"xmlns:{prefix}", XS_NAMESPACE)
+
     def __init__(self, text=None, extension_elements=None, extension_attributes=None):
         self._extatt = {}
 

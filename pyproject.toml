@@ -25,7 +25,10 @@ dependencies = [
   "pyopenssl >=25.3.0",
   "python-dateutil",
   "requests >=2.0.0,<3.0.0",  # ^2 means compatible with 2.x
-  "xmlschema >=2.0.0,<3.0.0"
+  # Keep the existing dependency stack on older Python versions. Python 3.15
+  # needs the newer elementpath Unicode data provided by xmlschema 4.3.2+.
+  "xmlschema >=2.0.0,<3.0.0; python_version < '3.15'",
+  "xmlschema >=4.3.2,<5.0.0; python_version >= '3.15'"
 ]
 
 [project.optional-dependencies]
